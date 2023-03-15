@@ -6,6 +6,7 @@ import {
 } from "babylonjs";
 import { AdvancedDynamicTexture, TextBlock } from "babylonjs-gui";
 import "babylonjs-loaders";
+import { HelloSphere, TextPlane } from "./components/meshes"
 
 export class App {
     private engine: Engine
@@ -20,13 +21,18 @@ export class App {
 
     async createScene() {
         const scene = new Scene(this.engine)
-        // scene.createDefaultCameraOrLight()
-        this.createCamera(scene)
-        this.createLights(scene)
+        scene.createDefaultCameraOrLight()
+        //this.createCamera(scene)
+        //this.createLights(scene)
 
-        const sphere = MeshBuilder.CreateSphere('sphere', { diameter: 1.3 })
-        sphere.position.y = 1
+        //simple sphere
+        const sphere = MeshBuilder.CreateSphere('sphere', { diameter: 1.3 }, scene)
+        sphere.position.y = -0.5
         sphere.position.z = 5
+
+        //hello sphere
+        const helloSphere = new HelloSphere("hello sphere", {diameter: 1}, scene)
+        helloSphere.position.set(0, 1, 5)
 
         //this.loadModel(scene)
         //this.addSounds(scene)
@@ -147,24 +153,27 @@ export class App {
 
     createText(scene:Scene)
     {
-        const helloPlane = MeshBuilder.CreatePlane('hello plane', { width: 2.5, height: 1})
-        helloPlane.position.y = 0
-        helloPlane.position.z = 5
-        const helloTexture = AdvancedDynamicTexture.CreateForMesh(helloPlane, 250, 100, false)
-        helloTexture.background = 'white'
-        const helloText = new TextBlock('hello')
-        helloText.text = 'Hello XR'
-        helloText.color = 'purple'
-        helloText.fontSize = 60
-        helloTexture.addControl(helloText)
-        helloText.onPointerUpObservable.add(evtData => {
+        const helloPlane = new TextPlane(
+            "hello plane",
+            3,
+            1,
+            0,
+            2,
+            5,
+            "Hello XR",
+            "white",
+            "purple",
+            60,
+            scene
+        )
+
+        helloPlane.textBlock.onPointerUpObservable.add(evtData => {
             alert('Hello Text at: \n x: ' + evtData.x + ' y:' + evtData.y)
         })
 
-        helloText.onPointerDownObservable.add(() => {
+        helloPlane.textBlock.onPointerDownObservable.add(() => {
             this.sound.play()
         })
-
     }
 
     createSkybox(scene: Scene) {
