@@ -19,6 +19,9 @@ import {
   Color4,
   Sound,
   PointerDragBehavior,
+  ActionManager,
+  Observable,
+  Observer,
 } from "babylonjs";
 import { AdvancedDynamicTexture, TextBlock } from "babylonjs-gui";
 import "babylonjs-loaders";
@@ -40,6 +43,7 @@ export class App {
     scene.createDefaultCameraOrLight(false, true, true);
     //this.createCamera(scene)
     //this.createLights(scene)
+    scene.actionManager = new ActionManager(scene);
 
     //simple sphere
     const sphere = MeshBuilder.CreateSphere("sphere", { diameter: 1.3 }, scene);
@@ -54,24 +58,100 @@ export class App {
     //hello sphere
     const helloSphere = new HelloSphere("hello sphere", { diameter: 1 }, scene);
     helloSphere.position.set(0, 1, 5);
+    helloSphere.sayHello("this a test.");
 
     //ground
-    const groundMaterial = new StandardMaterial("ground material",  scene)
-    groundMaterial.backFaceCulling = true
-    groundMaterial.diffuseTexture = new Texture('assets/textures/grass.png', scene)
-    const ground = MeshBuilder.CreateGround("ground", {width: 12, height: 12}, scene)
-    ground.material = groundMaterial
-    ground.position.set(0, -1, 8)
+    const groundMaterial = new StandardMaterial("ground material", scene);
+    groundMaterial.backFaceCulling = true;
+    groundMaterial.diffuseTexture = new Texture(
+      "assets/textures/grass.png",
+      scene
+    );
+    const ground = MeshBuilder.CreateGround(
+      "ground",
+      { width: 12, height: 12 },
+      scene
+    );
+    ground.material = groundMaterial;
+    ground.position.set(0, -1, 8);
 
     //interactions
     //use behaviors
     const pointerDragBehavior = new PointerDragBehavior({
       dragPlaneNormal: Vector3.Up(),
     });
+
+    pointerDragBehavior.onDragStartObservable.add((evtData) => {
+      console.log(
+        "drag start: pointer id -" + pointerDragBehavior,
+        evtData.pointerId
+      );
+      console.log(evtData);
+    });
     sphere.addBehavior(pointerDragBehavior);
+
+    const helloSphereDragBehavior = new PointerDragBehavior({
+      dragPlaneNormal: Vector3.Backward(),
+    });
+    helloSphere.addBehavior(helloSphereDragBehavior);
 
     //this.createSkybox(scene);
     //this.createVideoSkyDome(scene);
+
+    //use observables (@ Can be shifted to hello-mesh.ts class)
+    //1. create an observable for detecting intersections
+    const onIntersectObservable = new Observable<boolean>();
+    scene.registerBeforeRender(function () {
+      const isIntersecting = sphere.intersectsMesh(helloSphere, true, true);
+      onIntersectObservable.notifyObservers(isIntersecting);
+    });
+    helloSphere.onInterectObservable = onIntersectObservable;
+    const redColor = Color3.Red();
+    const whiteColor = Color3.White();
+    helloSphere.onInterectObservable.add((isIntersecting) => {
+      const material = helloSphere.mesh.material as StandardMaterial;
+      const isRed = material.diffuseColor === redColor;
+      if (isIntersecting && !isRed) {
+        material.diffuseColor = redColor;
+      } else if (!isIntersecting && isRed) {
+        material.diffuseColor = whiteColor;
+      }
+    });
+
+    //2. create an observable for check distance
+    const onDistanceChangeObservable = new Observable<number>();
+    let previousState: number = null;
+    scene.onBeforeRenderObservable.add(() => {
+      const currentState = Vector3.Distance(
+        sphere.position,
+        helloSphere.position
+      );
+      if (currentState !== previousState) {
+        console.log("distance updated!");
+        previousState = currentState;
+        onDistanceChangeObservable.notifyObservers(currentState);
+      }
+    });
+
+    helloSphere.onDistanceChangeObservable = onDistanceChangeObservable;
+    const blueColor = Color3.Blue();
+    helloSphere.onDistanceChangeObservable.add((distance) => {
+      const isCloseEnough = distance <= 1.2;
+      const material = helloSphere.mesh.material as StandardMaterial;
+      const isBlue = material.diffuseColor === blueColor;
+      const isRed = material.diffuseColor === redColor;
+      if (isCloseEnough && !isBlue && !isRed) {
+        material.diffuseColor = blueColor;
+      } else if (!isCloseEnough && isBlue) {
+        material.diffuseColor = whiteColor;
+      }
+    });
+
+    //3. create observer (Display distance on text block)
+    const observer = new Observer<number>((distance) => {
+      helloSphere.label.textBlock.text = "d: " + distance.toFixed(2)
+    }, -1);
+    onDistanceChangeObservable.observers.push(observer)
 
     this.addInspectorKeyboardShortcut(scene);
 
