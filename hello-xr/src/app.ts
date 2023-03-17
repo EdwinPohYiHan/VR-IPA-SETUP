@@ -22,6 +22,16 @@ import {
   ActionManager,
   Observable,
   Observer,
+  Tools,
+  WebXRFeaturesManager,
+  WebXRDefaultExperience,
+  Mesh,
+  WebXRFeatureName,
+  WebXRMotionControllerTeleportation,
+  TransformNode,
+  MultiPointerScaleBehavior,
+  GizmoManager,
+  PointerEventTypes,
 } from "babylonjs";
 import { AdvancedDynamicTexture, TextBlock } from "babylonjs-gui";
 import "babylonjs-loaders";
@@ -59,6 +69,7 @@ export class App {
     const helloSphere = new HelloSphere("hello sphere", { diameter: 1 }, scene);
     helloSphere.position.set(0, 1, 5);
     helloSphere.sayHello("this a test.");
+    helloSphere.isPickable = true;
 
     //ground
     const groundMaterial = new StandardMaterial("ground material", scene);
@@ -94,6 +105,18 @@ export class App {
       dragPlaneNormal: Vector3.Backward(),
     });
     helloSphere.addBehavior(helloSphereDragBehavior);
+
+    //multiple pointer scale
+    const multiPointerScaleBehavior = new MultiPointerScaleBehavior();
+    helloSphere.addBehavior(multiPointerScaleBehavior);
+
+    //more behaviors
+    //default gizmo
+    const gizmoManager = new GizmoManager(scene);
+    // gizmoManager.positionGizmoEnabled = true
+    // gizmoManager.rotationGizmoEnabled = true
+    // gizmoManager.scaleGizmoEnabled = true
+    gizmoManager.boundingBoxGizmoEnabled = true;
 
     //this.createSkybox(scene);
     //this.createVideoSkyDome(scene);
@@ -149,12 +172,45 @@ export class App {
 
     //3. create observer (Display distance on text block)
     const observer = new Observer<number>((distance) => {
-      helloSphere.label.textBlock.text = "d: " + distance.toFixed(2)
+      helloSphere.label.textBlock.text = "d: " + distance.toFixed(2);
     }, -1);
-    onDistanceChangeObservable.observers.push(observer)
+    //onDistanceChangeObservable.observers.push(observer)
+
+    //4. add observer using coroutine
+    const addObserverCoroutine = function* () {
+      console.log("frame " + scene.getFrameId() + ": do nothing");
+      yield;
+      console.log("frame " + scene.getFrameId() + ": add observer");
+      onDistanceChangeObservable.observers.push(observer);
+      yield;
+      console.log("frame " + scene.getFrameId() + ": do nothing");
+    };
+    scene.onBeforeRenderObservable.runCoroutineAsync(addObserverCoroutine());
+
+    const coroutine = function* () {
+      (async function () {
+        await Tools.DelayAsync(2000);
+        console.log("frame " + scene.getFrameId() + ": fn 1");
+      })();
+      yield;
+      (async function () {
+        await Tools.DelayAsync(2000);
+        console.log("frame " + scene.getFrameId() + ": fn 2");
+      })();
+      yield;
+      (async function () {
+        console.log("frame " + scene.getFrameId() + ": fn 3");
+      })();
+      yield Tools.DelayAsync(1000);
+      (async function () {
+        console.log("frame " + scene.getFrameId() + ": fn 4");
+      })();
+    };
+    scene.onBeforeRenderObservable.runCoroutineAsync(coroutine());
 
     this.addInspectorKeyboardShortcut(scene);
 
+    // XR session
     const xr = await scene.createDefaultXRExperienceAsync({
       uiOptions: {
         sessionMode: "immersive-vr",
@@ -164,6 +220,63 @@ export class App {
 
     //only for debugging
     (window as any).xr = xr;
+
+    const featureManager = xr.baseExperience.featuresManager;
+    console.log(WebXRFeaturesManager.GetAvailableFeatures());
+
+    //locomotion
+    const movement = MovementMode.Teleportation; //Teleportation, Contoller, Walk
+    this.initLocomotion(movement, xr, featureManager, ground, scene);
+
+    //hand tracking (Requires Oculus Quest 2)
+    try {
+      featureManager.enableFeature(WebXRFeatureName.HAND_TRACKING, "latest", {
+        xrInput: xr.input,
+        jointMeshes: {
+          disableDefaultHandMesh: false,
+          // disableDefaultHandMesh: true,
+        },
+      });
+    } catch (error) {
+      console.log(error);
+    }
+
+    //hand/controller drag
+    let mesh: AbstractMesh;
+    xr.input.onControllerAddedObservable.add((controller) => {
+      controller.onMotionControllerInitObservable.add((motionController) => {
+        // const ids = motionController.getComponentIds()
+        // const trigger = motionController.getComponent(ids[0])
+        const trigger = motionController.getComponentOfType("trigger");
+        trigger.onButtonStateChangedObservable.add(() => {
+          if (trigger.changes.pressed) {
+            if (
+              (mesh = xr.pointerSelection.getMeshUnderPointer(
+                controller.uniqueId
+              ))
+            ) {
+              console.log("mesh under controller pointer: " + mesh.name);
+              if (mesh.name !== "ground") {
+                const distance = Vector3.Distance(
+                  motionController.rootMesh.getAbsolutePosition(),
+                  mesh.getAbsolutePosition()
+                );
+                console.log("distance: " + distance);
+                if (distance < 1) {
+                  mesh.setParent(motionController.rootMesh);
+                  console.log("grab mesh: " + mesh.name);
+                }
+              }
+            } else {
+              if (mesh && mesh.parent) {
+                mesh.setParent(null);
+                console.log("release mesh: " + mesh.name);
+              }
+            }
+          }
+        });
+      });
+    });
 
     return scene;
   }
@@ -339,4 +452,65 @@ export class App {
       }
     });
   }
+
+  initLocomotion(
+    movement: MovementMode,
+    xr: WebXRDefaultExperience,
+    featureManager: WebXRFeaturesManager,
+    ground: Mesh,
+    scene: Scene
+  ) {
+    switch (movement) {
+      case MovementMode.Teleportation:
+        console.log("movement mode: teleportation");
+        const teleportation = featureManager.enableFeature(
+          WebXRFeatureName.TELEPORTATION,
+          "stable",
+          {
+            xrInput: xr.input,
+            floorMeshes: [ground],
+            timeToTeleport: 2000,
+            useMainComponentOnly: true,
+            defaultTargetMeshOptions: {
+              teleportationFillColor: "#55FF99",
+              teleportationBorderColor: "blue",
+              torusArrowMaterial: ground.material,
+            },
+          },
+          true,
+          true
+        ) as WebXRMotionControllerTeleportation;
+        teleportation.parabolicRayEnabled = true;
+        teleportation.parabolicCheckRadius = 2;
+        break;
+
+      case MovementMode.Contoller:
+        console.log("movement mode: controller");
+        featureManager.disableFeature(WebXRFeatureName.TELEPORTATION);
+        featureManager.enableFeature(WebXRFeatureName.MOVEMENT, "latest", {
+          xrInput: xr.input,
+        });
+        break;
+
+      case MovementMode.Walk:
+        console.log("movement mode: walk");
+        featureManager.disableFeature(WebXRFeatureName.TELEPORTATION);
+        const xrRoot = new TransformNode("xr root", scene);
+        xr.baseExperience.camera.parent = xrRoot;
+        featureManager.enableFeature(
+          WebXRFeatureName.WALKING_LOCOMOTION,
+          "latest",
+          {
+            locomotionTarget: xrRoot,
+          }
+        );
+        break;
+    }
+  }
+}
+
+enum MovementMode {
+  Teleportation,
+  Contoller,
+  Walk,
 }
