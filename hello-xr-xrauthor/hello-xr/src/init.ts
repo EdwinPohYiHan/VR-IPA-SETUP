@@ -4,9 +4,6 @@ import { App } from "./app";
 
 export function createXRScene(
   canvasID: string,
-  // authoringData: {
-  //   [dataType: string]: { [key: string]: any };
-  // }
   authoringData: AuthoringData,
 ) {
   const canvas = <HTMLCanvasElement>document.getElementById(canvasID);

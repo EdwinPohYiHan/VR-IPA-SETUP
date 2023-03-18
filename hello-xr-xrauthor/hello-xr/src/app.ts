@@ -32,6 +32,9 @@ import {
   MultiPointerScaleBehavior,
   GizmoManager,
   PointerEventTypes,
+  VideoTexture,
+  Matrix,
+  AnimationGroup,
 } from "babylonjs";
 import { AdvancedDynamicTexture, TextBlock } from "babylonjs-gui";
 import "babylonjs-loaders";
@@ -52,7 +55,7 @@ export class App {
   }
 
   async createScene() {
-    console.log(this.data)
+    console.log(this.data);
     const scene = new Scene(this.engine);
     scene.createDefaultCameraOrLight(false, true, true);
     //this.createCamera(scene)
@@ -64,16 +67,35 @@ export class App {
     sphere.position.y = -0.5;
     sphere.position.z = 5;
 
+    //Hello Text
+    const helloPlane = MeshBuilder.CreatePlane(
+      "hello plane",
+      { width: 2.5, height: 1 },
+      scene
+    );
+    const helloTexture = AdvancedDynamicTexture.CreateForMesh(
+      helloPlane,
+      250,
+      100,
+      false
+    );
+    helloTexture.name = "hello texture";
+    const helloText= new TextBlock("hello text");
+    helloText.color = "purple";
+    helloText.fontSize = 60;
+    helloTexture.addControl(helloText);
+
     //this.loadModel(scene)
     //this.addSounds(scene)
 
-    this.createText(scene);
+    //this.createText(scene);
 
     //hello sphere
     const helloSphere = new HelloSphere("hello sphere", { diameter: 1 }, scene);
     helloSphere.position.set(0, 1, 5);
     helloSphere.sayHello("this a test.");
     helloSphere.isPickable = true;
+    helloSphere.setEnabled(false); //temporary disable
 
     //ground
     const groundMaterial = new StandardMaterial("ground material", scene);
@@ -89,6 +111,7 @@ export class App {
     );
     ground.material = groundMaterial;
     ground.position.set(0, -1, 8);
+    ground.setEnabled(false); //temporary disable
 
     //interactions
     //use behaviors
@@ -103,7 +126,7 @@ export class App {
       );
       console.log(evtData);
     });
-    sphere.addBehavior(pointerDragBehavior);
+    //sphere.addBehavior(pointerDragBehavior);
 
     const helloSphereDragBehavior = new PointerDragBehavior({
       dragPlaneNormal: Vector3.Backward(),
@@ -116,11 +139,11 @@ export class App {
 
     //more behaviors
     //default gizmo
-    const gizmoManager = new GizmoManager(scene);
+    // const gizmoManager = new GizmoManager(scene);
     // gizmoManager.positionGizmoEnabled = true
     // gizmoManager.rotationGizmoEnabled = true
     // gizmoManager.scaleGizmoEnabled = true
-    gizmoManager.boundingBoxGizmoEnabled = true;
+    // gizmoManager.boundingBoxGizmoEnabled = true;
 
     //this.createSkybox(scene);
     //this.createVideoSkyDome(scene);
@@ -213,6 +236,99 @@ export class App {
     scene.onBeforeRenderObservable.runCoroutineAsync(coroutine());
 
     this.addInspectorKeyboardShortcut(scene);
+
+    //XRAuthor Video
+    const videoHeight = 5;
+    const videoWidth = videoHeight * this.data.recordingData.aspectRatio;
+    const videoPlane = MeshBuilder.CreatePlane(
+      "video plane",
+      {
+        height: videoHeight,
+        width: videoWidth,
+      },
+      scene
+    );
+    videoPlane.position.z = 6;
+    const videoMaterial = new StandardMaterial("video material", scene);
+    const videoTexture = new VideoTexture(
+      "video texture",
+      this.data.video,
+      scene
+    );
+    videoTexture.video.autoplay = false;
+    videoTexture.onUserActionRequestedObservable.add(() => {});
+    videoMaterial.diffuseTexture = videoTexture;
+    videoMaterial.roughness = 1;
+    videoMaterial.emissiveColor = Color3.White();
+    videoPlane.material = videoMaterial;
+    scene.onPointerObservable.add((evtData) => {
+      console.log("picked");
+      if (evtData.pickInfo.pickedMesh === videoPlane) {
+        if (videoTexture.video.paused) {
+          videoTexture.video.play();
+          animationGroup.play(true);
+        } else {
+          videoTexture.video.pause();
+          animationGroup.pause();
+        }
+        console.log(videoTexture.video.paused ? "paused" : "playing");
+      }
+    }, PointerEventTypes.POINTERPICK);
+
+    //XRAuthor Animation
+    const id = "m10";
+    const track = this.data.recordingData.animation.tracks[id];
+    console.log("what value" + this.data.recordingData.animation.tracks);
+    const length = track.times.length;
+    const fps = length / this.data.recordingData.animation.duration;
+    const keyFrames = [];
+    for (let i = 0; i < length; i++) {
+      const mat = Matrix.FromArray(track.matrices[i].elements);
+      const pos = mat.getTranslation();
+      //convert position from right handed to left handed coords
+      pos.z = -pos.z;
+      const s = 6 / pos.z;
+      keyFrames.push({
+        frame: track.times[i] * fps,
+        value: pos.scale(s).multiplyByFloats(3, 3, 1),
+      });
+    }
+    const animation = new Animation(
+      "animation",
+      "position",
+      fps,
+      Animation.ANIMATIONTYPE_VECTOR3,
+      Animation.ANIMATIONLOOPMODE_CYCLE
+    );
+    animation.setKeys(keyFrames);
+    // sphere.animations = [animation];
+    // scene.beginAnimation(sphere, 0, length - 1, true);
+    const animationGroup = new AnimationGroup("animation group", scene);
+    //animationGroup.addTargetedAnimation(animation, sphere);
+
+    //Loading Models from XRAuthor Video
+    const info = this.data.recordingData.modelInfo[id];
+    const label = info.label;
+    const name = info.name;
+    const url = this.data.models[name];
+
+    SceneLoader.AppendAsync(url, undefined, scene, undefined, ".glb").then(
+      (result) => {
+        const root = result.getMeshById("__root__");
+        root.id = id + ": " + label;
+        root.name = label;
+
+        //Label text
+        helloPlane.position.setAll(0);
+        helloPlane.position.y = -0.5;
+        helloPlane.position.z = -0.1;
+        helloPlane.setParent(root);
+        helloText.text = label;
+
+        animationGroup.addTargetedAnimation(animation, root);
+        animationGroup.reset();
+      }
+    );
 
     // XR session
     const xr = await scene.createDefaultXRExperienceAsync({

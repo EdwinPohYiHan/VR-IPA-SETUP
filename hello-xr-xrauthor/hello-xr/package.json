@@ -16,7 +16,7 @@
   "dependencies": {
     "babylonjs": "^5.44.0",
     "babylonjs-gui": "^5.50.1",
-    "babylonjs-loaders": "^5.50.1",
+    "babylonjs-loaders": "^5.51.0",
     "babylonjs-materials": "^5.50.1"
   },
   "devDependencies": {
