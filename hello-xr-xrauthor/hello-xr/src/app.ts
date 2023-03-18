@@ -145,7 +145,7 @@ export class App {
     // gizmoManager.scaleGizmoEnabled = true
     // gizmoManager.boundingBoxGizmoEnabled = true;
 
-    //this.createSkybox(scene);
+    this.createSkybox(scene);
     //this.createVideoSkyDome(scene);
 
     //use observables (@ Can be shifted to hello-mesh.ts class)
@@ -281,16 +281,22 @@ export class App {
     console.log("what value" + this.data.recordingData.animation.tracks);
     const length = track.times.length;
     const fps = length / this.data.recordingData.animation.duration;
+
+    const depth = Math.abs(videoPlane.position.z) - 0.4
+    const scaleForDepth = depth / this.data.recordingData.videoPlaneDepth;
+    const fov = this.data.recordingData.fovInDegrees * Math.PI / 180
+    const videoHeightFromRecordingAfterDepthScaling = Math.tan(fov/2) * depth * 2
+    const scaleForSize = videoHeight / videoHeightFromRecordingAfterDepthScaling
+
     const keyFrames = [];
     for (let i = 0; i < length; i++) {
       const mat = Matrix.FromArray(track.matrices[i].elements);
       const pos = mat.getTranslation();
       //convert position from right handed to left handed coords
       pos.z = -pos.z;
-      const s = 6 / pos.z;
       keyFrames.push({
         frame: track.times[i] * fps,
-        value: pos.scale(s).multiplyByFloats(3, 3, 1),
+        value: pos.scale(scaleForDepth).multiplyByFloats(scaleForSize, scaleForSize, 1),
       });
     }
     const animation = new Animation(
