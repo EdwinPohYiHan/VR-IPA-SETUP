@@ -278,7 +278,6 @@ export class App {
     //XRAuthor Animation
     const id = "m10";
     const track = this.data.recordingData.animation.tracks[id];
-    console.log("what value" + this.data.recordingData.animation.tracks);
     const length = track.times.length;
     const fps = length / this.data.recordingData.animation.duration;
 
